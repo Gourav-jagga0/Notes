@@ -1,0 +1,21 @@
+persistance->version
+			->xmlns
+			->xmlns:xsi
+			->xsi:schemaLocation
+persistance-unit
+			->name
+			->tansaction-type
+						->JTA:application server will handle the tansactions 
+						->resource-local: needs entity manager to manage transactions application will have more controll ober transactions
+provider-> Jpaprovers
+		->Hibernate
+		->eclipseLink
+		->open jpa
+		->DataNucleus
+class->entity classes for DB
+mapping-file-> difens the additional mappings of the classes
+jar-file->define entity and mapping files
+exclude-unlisted-classes
+properties->
+jta-data-source-> for jta tansaction-type
+non-jta-data-source: for resource-local tansaction-type

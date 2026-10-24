@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linux Syscalls Reference</title>
+<style>
+:root{
+  --bg:#f7f6f2; --surface:#ffffff; --ink:#1d1d1b; --muted:#66645e; --line:#e2dfd6;
+  --accent:#0f6e66; --accent-soft:#e3f1ef; --warn:#8a4b0f; --warn-soft:#fbefe1;
+  --code-bg:#f0eee7; --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141413; --surface:#1d1d1b; --ink:#ecebe6; --muted:#a3a197; --line:#33322e;
+    --accent:#5cc2b6; --accent-soft:#1b2e2c; --warn:#e7a868; --warn-soft:#2e2318; --code-bg:#262623;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141413; --surface:#1d1d1b; --ink:#ecebe6; --muted:#a3a197; --line:#33322e;
+  --accent:#5cc2b6; --accent-soft:#1b2e2c; --warn:#e7a868; --warn-soft:#2e2318; --code-bg:#262623;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 var(--sans)}
+main{max-width:1040px;margin:0 auto;padding:32px 16px 80px}
+h1{font-size:28px;margin:0 0 4px;letter-spacing:-.01em}
+h2{font-size:20px;margin:40px 0 8px;padding-top:8px;border-top:1px solid var(--line)}
+h3{font-size:16px;margin:20px 0 6px}
+p{margin:6px 0 10px}
+.sub{color:var(--muted);margin:0 0 24px}
+code{font:13px var(--mono);background:var(--code-bg);padding:1px 5px;border-radius:4px}
+pre{font:13px/1.5 var(--mono);background:var(--code-bg);padding:12px 14px;border-radius:8px;overflow-x:auto;margin:8px 0 14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:12px 0}
+.note{background:var(--accent-soft);border-left:3px solid var(--accent);padding:12px 14px;border-radius:6px;margin:12px 0}
+.warn{background:var(--warn-soft);border-left:3px solid var(--warn);padding:12px 14px;border-radius:6px;margin:12px 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:720px){.grid2{grid-template-columns:1fr}}
+ul{margin:6px 0 10px;padding-left:20px}
+li{margin:3px 0}
+nav{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 4px}
+nav a{font-size:13px;text-decoration:none;color:var(--accent);border:1px solid var(--line);background:var(--surface);padding:4px 10px;border-radius:999px}
+nav a:hover{border-color:var(--accent)}
+.search{position:sticky;top:0;background:var(--bg);padding:10px 0;z-index:2}
+.search input{width:100%;font:15px var(--sans);padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:8px 0 6px}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th,td{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid var(--line)}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td:first-child{white-space:nowrap}
+td:first-child code{color:var(--accent);font-weight:600}
+td.java code{font-size:12px}
+.tag{font-size:11px;font-weight:600;padding:1px 6px;border-radius:4px;background:var(--code-bg);color:var(--muted);margin-left:4px}
+.hidden{display:none}
+footer{margin-top:48px;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+<h1>Linux System Calls Reference</h1>
+<p class="sub">What the CPU does on its own, what it must ask the kernel for, and which Java code triggers which syscall. Linux x86_64, HotSpot JVM.</p>
+
+<nav>
+  <a href="#java">Java summary</a>
+  <a href="#cpu">CPU vs kernel</a>
+  <a href="#files">Files</a>
+  <a href="#fs">Directories &amp; metadata</a>
+  <a href="#proc">Processes</a>
+  <a href="#threads">Threads &amp; sync</a>
+  <a href="#mem">Memory</a>
+  <a href="#net">Network</a>
+  <a href="#mux">Multiplexing</a>
+  <a href="#sig">Signals</a>
+  <a href="#ipc">IPC</a>
+  <a href="#time">Time</a>
+  <a href="#misc">System info &amp; misc</a>
+  <a href="#iso">Isolation (containers)</a>
+  <a href="#observe">Observe it</a>
+</nav>
+
+<h2 id="java">Summary in Java terms</h2>
+<div class="card">
+<ul>
+  <li><strong>Pure computation never makes a syscall.</strong> Arithmetic, loops, method calls, <code>new Object()</code> (bump-pointer in a thread-local buffer), <code>AtomicInteger.incrementAndGet()</code>, and uncontended <code>synchronized</code> all run as plain CPU instructions.</li>
+  <li><strong>Anything outside your process's memory needs the kernel:</strong> files, sockets, starting or waiting for threads/processes, sleeping, growing memory, signals.</li>
+  <li><strong>Every Java I/O class sits on a handful of syscalls:</strong> <code>openat → read/write → close</code> for files, <code>socket → bind → listen → accept</code> for servers, <code>epoll_*</code> for NIO, Netty and virtual threads.</li>
+  <li><strong>Syscalls are expensive</strong> compared to normal code (mode switch + validation), so the JDK batches them: <code>BufferedReader</code>, <code>BufferedOutputStream</code>, NIO buffers, <code>transferTo</code> (sendfile).</li>
+  <li><strong>Exceptions are syscall errors:</strong> <code>AccessDeniedException</code> = <code>EACCES</code>, “Too many open files” = <code>EMFILE</code>, <code>ConnectException: Connection refused</code> = <code>ECONNREFUSED</code>, <code>BindException: Address already in use</code> = <code>EADDRINUSE</code>, <code>NoSuchFileException</code> = <code>ENOENT</code>.</li>
+  <li><strong>The JVM makes many syscalls on its own</strong> before <code>main()</code> runs: <code>mmap</code> to reserve the heap, <code>openat</code> for jars and <code>.so</code> libraries, <code>clone</code> for GC/JIT threads, <code>rt_sigaction</code> for signal handlers.</li>
+</ul>
+</div>
+
+<h2 id="cpu">What the CPU can do by itself vs what needs the kernel</h2>
+<p>A syscall is <em>not</em> a CPU feature. It is the kernel's API. The CPU's real capability is its <strong>instruction set</strong> (x86_64, ARM64). Some instructions run in user mode; others are <em>privileged</em> and only work in kernel mode. Syscalls exist so your program can get privileged work done safely.</p>
+<div class="grid2">
+  <div class="card">
+    <h3>User mode: your code runs these directly</h3>
+    <ul>
+      <li>Arithmetic and logic (add, multiply, shift, compare)</li>
+      <li>Load/store to memory <em>already mapped</em> to your process</li>
+      <li>Jumps, calls, returns (all of control flow)</li>
+      <li>Floating point and <strong>SIMD/vector</strong> (SSE, AVX, NEON); the JIT auto-vectorises loops, Java's Vector API targets these</li>
+      <li><strong>Atomic instructions</strong> (<code>lock cmpxchg</code>, <code>xadd</code>): <code>AtomicInteger</code>, <code>compareAndSet</code>, <code>VarHandle</code></li>
+      <li><strong>Memory fences</strong>: what <code>volatile</code> compiles to</li>
+      <li>Reading the timestamp counter (<code>rdtsc</code>): basis of the fast vDSO clock</li>
+      <li>The <code>syscall</code> instruction itself: the doorway to the kernel</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Kernel mode only: needs a syscall</h3>
+    <ul>
+      <li>Talking to devices (disk, NIC, GPU, keyboard) and handling their interrupts</li>
+      <li>Changing page tables: giving a process more memory, mapping files</li>
+      <li>Switching which thread runs on a CPU (scheduling, sleeping, waking)</li>
+      <li>Creating/destroying processes and threads</li>
+      <li>Enforcing permissions (UID/GID, capabilities)</li>
+      <li>Disabling interrupts, halting the CPU, configuring timers</li>
+      <li>Accessing another process's memory or sending it a signal</li>
+    </ul>
+  </div>
+</div>
+<div class="note"><strong>Key insight:</strong> <code>synchronized</code> and <code>ReentrantLock</code> first try a CPU atomic instruction (no syscall). Only when another thread holds the lock and waiting is needed do they call <code>futex</code> to sleep. That's why uncontended locks are cheap and contended ones are slow.</div>
+
+<div class="search"><input id="q" type="search" placeholder="Filter syscalls, e.g. socket, mmap, Thread, epoll…" aria-label="Filter syscalls"></div>
+
+<section class="sec" id="files">
+<h2>Files &amp; file descriptors</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Triggered in Java by</th></tr></thead>
+<tbody>
+<tr><td><code>openat</code> / <code>open</code></td><td>Open a file, get a file descriptor (lowest free number)</td><td class="java"><code>new FileInputStream(f)</code>, <code>Files.newBufferedReader</code>, <code>FileChannel.open</code></td></tr>
+<tr><td><code>read</code></td><td>Read bytes from an fd into a buffer</td><td class="java"><code>InputStream.read()</code>, <code>Files.readAllBytes</code></td></tr>
+<tr><td><code>write</code></td><td>Write bytes from a buffer to an fd</td><td class="java"><code>OutputStream.write</code>, <code>System.out.println</code> (fd 1)</td></tr>
+<tr><td><code>close</code></td><td>Release the fd</td><td class="java"><code>close()</code>, end of try-with-resources</td></tr>
+<tr><td><code>pread64</code> / <code>pwrite64</code></td><td>Read/write at an offset without moving the file position (thread-safe)</td><td class="java"><code>FileChannel.read(buf, position)</code></td></tr>
+<tr><td><code>readv</code> / <code>writev</code></td><td>Scatter/gather: many buffers in one call</td><td class="java"><code>FileChannel.read(ByteBuffer[])</code></td></tr>
+<tr><td><code>lseek</code></td><td>Move the file position</td><td class="java"><code>RandomAccessFile.seek</code>, <code>FileChannel.position(n)</code></td></tr>
+<tr><td><code>fsync</code> / <code>fdatasync</code></td><td>Force data from page cache to disk</td><td class="java"><code>FileChannel.force(true/false)</code>, <code>FileDescriptor.sync()</code></td></tr>
+<tr><td><code>ftruncate</code></td><td>Resize a file</td><td class="java"><code>FileChannel.truncate</code>, <code>RandomAccessFile.setLength</code></td></tr>
+<tr><td><code>sendfile</code></td><td>Copy file → socket inside the kernel (zero-copy)</td><td class="java"><code>FileChannel.transferTo</code></td></tr>
+<tr><td><code>copy_file_range</code></td><td>Copy file → file inside the kernel</td><td class="java"><code>Files.copy</code> (newer JDKs)</td></tr>
+<tr><td><code>fcntl</code></td><td>Fd flags (non-blocking, close-on-exec) and file locks</td><td class="java"><code>FileChannel.lock()</code> / <code>tryLock()</code>, NIO <code>configureBlocking(false)</code></td></tr>
+<tr><td><code>dup</code> / <code>dup2</code> / <code>dup3</code></td><td>Copy an fd to another number (how redirection works)</td><td class="java"><code>ProcessBuilder.redirectOutput</code> (in the child)</td></tr>
+<tr><td><code>ioctl</code></td><td>Device-specific control (terminal size, etc.)</td><td class="java">Rare: terminal libraries like JLine</td></tr>
+</tbody></table></div>
+</section>
+
+<section class="sec" id="fs">
+<h2>Directories &amp; metadata</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Triggered in Java by</th></tr></thead>
+<tbody>
+<tr><td><code>statx</code> / <code>newfstatat</code> / <code>fstat</code></td><td>Get metadata: size, owner, permissions, times, inode</td><td class="java"><code>File.exists()</code>, <code>Files.size</code>, <code>Files.readAttributes</code>, <code>isDirectory()</code></td></tr>
+<tr><td><code>getdents64</code></td><td>Read directory entries</td><td class="java"><code>File.listFiles()</code>, <code>Files.list</code>, <code>Files.walk</code></td></tr>
+<tr><td><code>mkdir</code> / <code>rmdir</code></td><td>Create / remove a directory</td><td class="java"><code>Files.createDirectory</code>, <code>File.mkdirs</code></td></tr>
+<tr><td><code>unlink</code> / <code>unlinkat</code></td><td>Remove a name → inode link (delete when count hits 0 and no fd is open)</td><td class="java"><code>Files.delete</code>, <code>File.delete()</code></td></tr>
+<tr><td><code>rename</code> / <code>renameat2</code></td><td>Atomic rename/move within a filesystem</td><td class="java"><code>Files.move</code> (with <code>ATOMIC_MOVE</code>), <code>File.renameTo</code></td></tr>
+<tr><td><code>link</code> / <code>symlink</code></td><td>Create a hard link / symbolic link</td><td class="java"><code>Files.createLink</code> / <code>Files.createSymbolicLink</code></td></tr>
+<tr><td><code>readlink</code></td><td>Read where a symlink points</td><td class="java"><code>Files.readSymbolicLink</code>, <code>toRealPath()</code></td></tr>
+<tr><td><code>chmod</code> / <code>fchmodat</code></td><td>Change permission bits</td><td class="java"><code>Files.setPosixFilePermissions</code>, <code>File.setExecutable</code></td></tr>
+<tr><td><code>chown</code> / <code>fchownat</code></td><td>Change owner/group</td><td class="java"><code>Files.setOwner</code></td></tr>
+<tr><td><code>access</code> / <code>faccessat</code></td><td>Check if the caller may read/write/execute</td><td class="java"><code>Files.isReadable</code>, <code>File.canWrite()</code></td></tr>
+<tr><td><code>getcwd</code> / <code>chdir</code></td><td>Get / change current directory</td><td class="java"><code>System.getProperty("user.dir")</code> (read at startup; Java can't chdir)</td></tr>
+<tr><td><code>inotify_init1</code> / <code>inotify_add_watch</code></td><td>Get notified when files change</td><td class="java"><code>WatchService</code>, Spring DevTools, IDE file watchers</td></tr>
+<tr><td><code>mount</code> / <code>umount2</code></td><td>Attach / detach a filesystem</td><td class="java">Not from Java (root only)</td></tr>
+</tbody></table></div>
+</section>
+
+<section class="sec" id="proc">
+<h2>Processes</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Triggered in Java by</th></tr></thead>
+<tbody>
+<tr><td><code>clone</code> / <code>clone3</code> / <code>vfork</code></td><td>Create a new process (or thread, depending on flags)</td><td class="java"><code>ProcessBuilder.start()</code>, <code>Runtime.exec</code> (via posix_spawn)</td></tr>
+<tr><td><code>fork</code></td><td>Classic “copy this process” (glibc now uses clone)</td><td class="java">Not used directly by the JDK</td></tr>
+<tr><td><code>execve</code></td><td>Replace this process's program with another binary</td><td class="java">The child side of <code>ProcessBuilder.start()</code></td></tr>
+<tr><td><code>exit_group</code></td><td>End the whole process with an exit code</td><td class="java"><code>System.exit(n)</code>, end of <code>main</code> after non-daemon threads finish</td></tr>
+<tr><td><code>wait4</code> / <code>waitid</code></td><td>Wait for a child to finish, collect exit code (prevents zombies)</td><td class="java"><code>Process.waitFor()</code>, <code>process.exitValue()</code></td></tr>
+<tr><td><code>kill</code></td><td>Send a signal to a process</td><td class="java"><code>Process.destroy()</code> (SIGTERM), <code>destroyForcibly()</code> (SIGKILL)</td></tr>
+<tr><td><code>getpid</code> / <code>getppid</code></td><td>Own / parent PID</td><td class="java"><code>ProcessHandle.current().pid()</code></td></tr>
+<tr><td><code>setpriority</code> / <code>getpriority</code></td><td>Nice value of a process</td><td class="java">Not exposed; <code>Thread.setPriority</code> is ignored on Linux by default</td></tr>
+<tr><td><code>prlimit64</code> / <code>getrlimit</code></td><td>Read/raise limits (open files, stack size)</td><td class="java">JVM raises its own fd soft limit at startup</td></tr>
+<tr><td><code>prctl</code></td><td>Misc per-process/thread settings (e.g. thread name)</td><td class="java">JVM names native threads (seen in <code>top -H</code>)</td></tr>
+</tbody></table></div>
+</section>
+
+<section class="sec" id="threads">
+<h2>Threads &amp; synchronisation</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Triggered in Java by</th></tr></thead>
+<tbody>
+<tr><td><code>clone</code> <span class="tag">CLONE_THREAD|CLONE_VM</span></td><td>New thread = new task that shares memory, fds, signal handlers</td><td class="java"><code>Thread.start()</code>, thread pools, <code>ExecutorService</code> (platform threads)</td></tr>
+<tr><td><code>futex</code></td><td>“Sleep until this memory word changes” / “wake waiters”: the base of every blocking lock</td><td class="java">Contended <code>synchronized</code>, <code>wait/notify</code>, <code>ReentrantLock</code>, <code>LockSupport.park</code>, <code>BlockingQueue.take</code>, <code>Thread.join</code>, often <code>Thread.sleep</code></td></tr>
+<tr><td><code>sched_yield</code></td><td>Give up the CPU voluntarily</td><td class="java"><code>Thread.yield()</code>, spin-loops</td></tr>
+<tr><td><code>sched_getaffinity</code> / <code>sched_setaffinity</code></td><td>Which logical CPUs a thread may run on</td><td class="java"><code>Runtime.availableProcessors()</code> (also reads cgroup limits)</td></tr>
+<tr><td><code>gettid</code></td><td>Thread ID (TID, the LWP in <code>ps -L</code>)</td><td class="java">JVM internals; <code>Thread.threadId()</code> is a Java-only number</td></tr>
+<tr><td><code>clock_nanosleep</code> / <code>nanosleep</code></td><td>Sleep for a duration</td><td class="java"><code>Thread.sleep</code>, <code>TimeUnit.sleep</code></td></tr>
+<tr><td><code>set_robust_list</code> / <code>rseq</code></td><td>Thread bookkeeping set up by glibc at thread start</td><td class="java">Every new platform thread (you'll see these in strace)</td></tr>
+</tbody></table></div>
+<div class="note"><strong>Virtual threads (Java 21+)</strong> do <em>not</em> call <code>clone</code>. They are scheduled by the JVM onto a few carrier (platform) threads. When a virtual thread blocks on a socket, the JVM parks it and registers the socket with <code>epoll</code> instead of blocking a kernel thread.</div>
+</section>
+
+<section class="sec" id="mem">
+<h2>Memory</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Triggered in Java by</th></tr></thead>
+<tbody>
+<tr><td><code>mmap</code></td><td>Map memory into the address space: anonymous (fresh RAM) or a file</td><td class="java">JVM heap reservation (<code>-Xmx</code>), thread stacks, metaspace, <code>FileChannel.map</code> (<code>MappedByteBuffer</code>), loading jars/.so</td></tr>
+<tr><td><code>munmap</code></td><td>Unmap a region</td><td class="java">Heap shrinking, thread exit, unmapping buffers</td></tr>
+<tr><td><code>mprotect</code></td><td>Change a region's permissions (read/write/exec)</td><td class="java">JIT code cache (making compiled code executable), stack guard pages → <code>StackOverflowError</code></td></tr>
+<tr><td><code>madvise</code></td><td>Hint to the kernel (free these pages, use huge pages…)</td><td class="java">GC returning memory to the OS, <code>-XX:+UseTransparentHugePages</code></td></tr>
+<tr><td><code>brk</code></td><td>Grow the classic C heap</td><td class="java">Native <code>malloc</code> for small JVM-internal allocations</td></tr>
+<tr><td><code>mlock</code></td><td>Pin pages in RAM (never swap)</td><td class="java">Not used by default</td></tr>
+<tr><td><code>memfd_create</code></td><td>Anonymous file living in RAM</td><td class="java">Some JVM/GC internals (e.g. ZGC multi-mapping)</td></tr>
+</tbody></table></div>
+<div class="warn"><code>new Object()</code> is <strong>not</strong> a syscall. The JVM got a big chunk of memory with <code>mmap</code> at startup and hands out objects from it itself. The OS only learns about memory when the heap grows or a page is touched for the first time (page fault, which is a kernel entry but not a syscall).</div>
+</section>
+
+<section class="sec" id="net">
+<h2>Network (sockets)</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Triggered in Java by</th></tr></thead>
+<tbody>
+<tr><td><code>socket</code></td><td>Create a socket (TCP/UDP/Unix), get an fd</td><td class="java"><code>new Socket()</code>, <code>new ServerSocket()</code>, <code>SocketChannel.open</code>, <code>DatagramSocket</code></td></tr>
+<tr><td><code>setsockopt</code> / <code>getsockopt</code></td><td>Options: timeouts, buffer sizes, keep-alive, <code>SO_REUSEADDR</code>, <code>TCP_NODELAY</code></td><td class="java"><code>setSoTimeout</code>, <code>setTcpNoDelay</code>, <code>setReuseAddress</code></td></tr>
+<tr><td><code>bind</code></td><td>Attach the socket to an IP + port</td><td class="java"><code>new ServerSocket(8080)</code>: fails with <code>EADDRINUSE</code> if taken; <code>EACCES</code> below 1024</td></tr>
+<tr><td><code>listen</code></td><td>Mark as server socket, set accept backlog</td><td class="java"><code>ServerSocket</code> constructor (backlog arg)</td></tr>
+<tr><td><code>accept</code> / <code>accept4</code></td><td>Take the next incoming connection → new fd</td><td class="java"><code>serverSocket.accept()</code></td></tr>
+<tr><td><code>connect</code></td><td>Start a TCP connection (3-way handshake)</td><td class="java"><code>new Socket(host, port)</code>, <code>HttpClient.send</code>, JDBC connect</td></tr>
+<tr><td><code>sendto</code> / <code>recvfrom</code> (or <code>write</code>/<code>read</code>)</td><td>Send / receive data</td><td class="java">Socket streams, <code>SocketChannel.read/write</code>, <code>DatagramSocket.send/receive</code></td></tr>
+<tr><td><code>sendmsg</code> / <code>recvmsg</code></td><td>Send/receive with extra info (multiple buffers, fds over Unix sockets)</td><td class="java">NIO scatter/gather, Unix domain sockets</td></tr>
+<tr><td><code>shutdown</code></td><td>Close one direction of a connection</td><td class="java"><code>socket.shutdownOutput()</code></td></tr>
+<tr><td><code>getsockname</code> / <code>getpeername</code></td><td>Local / remote address of a socket</td><td class="java"><code>getLocalPort()</code>, <code>getRemoteSocketAddress()</code></td></tr>
+</tbody></table></div>
+<p>DNS lookup (<code>InetAddress.getByName</code>) has no dedicated syscall: glibc reads <code>/etc/hosts</code> and <code>/etc/resolv.conf</code> with <code>openat/read</code>, then sends a UDP query with <code>socket/sendto/recvfrom</code>.</p>
+</section>
+
+<section class="sec" id="mux">
+<h2>I/O multiplexing &amp; async</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Triggered in Java by</th></tr></thead>
+<tbody>
+<tr><td><code>epoll_create1</code></td><td>Create an epoll instance (watch list)</td><td class="java"><code>Selector.open()</code>, Netty <code>EpollEventLoop</code></td></tr>
+<tr><td><code>epoll_ctl</code></td><td>Add/modify/remove an fd in the watch list</td><td class="java"><code>channel.register(selector, OP_READ)</code></td></tr>
+<tr><td><code>epoll_wait</code></td><td>Sleep until any watched fd is ready</td><td class="java"><code>selector.select()</code>; the loop behind Tomcat NIO, Netty, Spring WebFlux, virtual-thread I/O</td></tr>
+<tr><td><code>poll</code> / <code>select</code></td><td>Older versions of the same idea (scan the whole list each time)</td><td class="java">Legacy code, some timeouts</td></tr>
+<tr><td><code>eventfd</code></td><td>A counter fd used to wake an event loop</td><td class="java"><code>selector.wakeup()</code></td></tr>
+<tr><td><code>io_uring_setup</code> / <code>io_uring_enter</code></td><td>Modern async I/O via shared ring buffers: very few syscalls for lots of I/O</td><td class="java">Not in the JDK; available via Netty incubator / libraries</td></tr>
+</tbody></table></div>
+<div class="note">This is how one thread serves 10,000 connections: instead of one blocked thread per socket (<code>read</code> sleeping), a single thread calls <code>epoll_wait</code> and only touches sockets that have data.</div>
+</section>
+
+<section class="sec" id="sig">
+<h2>Signals</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Triggered in Java by</th></tr></thead>
+<tbody>
+<tr><td><code>rt_sigaction</code></td><td>Install a handler for a signal</td><td class="java">JVM startup: handles SIGTERM/SIGINT/SIGHUP (→ shutdown hooks), SIGQUIT (→ thread dump), SIGSEGV (→ <code>NullPointerException</code> trick)</td></tr>
+<tr><td><code>rt_sigprocmask</code></td><td>Block / unblock signals for a thread</td><td class="java">JVM thread setup</td></tr>
+<tr><td><code>kill</code> / <code>tgkill</code></td><td>Send a signal to a process / one specific thread</td><td class="java"><code>Process.destroy()</code>; JVM uses <code>tgkill</code> internally</td></tr>
+<tr><td><code>sigaltstack</code></td><td>Separate stack for signal handlers</td><td class="java">Lets the JVM survive a stack overflow long enough to throw <code>StackOverflowError</code></td></tr>
+</tbody></table></div>
+<p><code>Runtime.addShutdownHook</code> runs on <code>SIGTERM</code>/<code>SIGINT</code> (Ctrl+C, <code>docker stop</code>, Kubernetes pod shutdown) but <strong>never</strong> on <code>SIGKILL</code> (<code>kill -9</code>, OOM killer).</p>
+</section>
+
+<section class="sec" id="ipc">
+<h2>Inter-process communication</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Triggered in Java by</th></tr></thead>
+<tbody>
+<tr><td><code>pipe2</code></td><td>One-way byte channel: two fds (read end, write end)</td><td class="java"><code>ProcessBuilder</code>: the child's stdin/stdout/stderr you read with <code>process.getInputStream()</code></td></tr>
+<tr><td><code>socketpair</code></td><td>Two connected Unix sockets (two-way)</td><td class="java">Some internal plumbing</td></tr>
+<tr><td><code>socket(AF_UNIX)</code></td><td>Unix domain socket: local-only, file path address</td><td class="java"><code>UnixDomainSocketAddress</code> (Java 16+); how you talk to <code>/var/run/docker.sock</code></td></tr>
+<tr><td><code>mmap(MAP_SHARED)</code> / <code>shm_open</code></td><td>Shared memory between processes</td><td class="java"><code>FileChannel.map(READ_WRITE)</code> on the same file in two JVMs (Chronicle Queue)</td></tr>
+<tr><td><code>mq_open</code> / <code>msgget</code></td><td>POSIX / System V message queues</td><td class="java">Not in the JDK</td></tr>
+</tbody></table></div>
+</section>
+
+<section class="sec" id="time">
+<h2>Time &amp; randomness</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Triggered in Java by</th></tr></thead>
+<tbody>
+<tr><td><code>clock_gettime</code> <span class="tag">vDSO</span></td><td>Read a clock (wall-clock or monotonic); usually runs in user mode via vDSO, no kernel entry</td><td class="java"><code>System.currentTimeMillis()</code>, <code>System.nanoTime()</code>, <code>Instant.now()</code></td></tr>
+<tr><td><code>gettimeofday</code> <span class="tag">vDSO</span></td><td>Older wall-clock call</td><td class="java">Legacy paths</td></tr>
+<tr><td><code>timerfd_create</code></td><td>Timer delivered as an fd (works with epoll)</td><td class="java">Netty/event loops (JDK uses its own timer threads)</td></tr>
+<tr><td><code>getrandom</code></td><td>Secure random bytes from the kernel</td><td class="java"><code>SecureRandom</code> (or reading <code>/dev/urandom</code> with <code>read</code>), <code>UUID.randomUUID()</code></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="sec" id="misc">
+<h2>System info, users &amp; misc</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Triggered in Java by</th></tr></thead>
+<tbody>
+<tr><td><code>uname</code></td><td>Kernel name, version, architecture</td><td class="java"><code>os.name</code>, <code>os.version</code>, <code>os.arch</code> properties (read at startup)</td></tr>
+<tr><td><code>getuid</code> / <code>geteuid</code> / <code>getgid</code></td><td>Real / effective user and group IDs</td><td class="java"><code>user.name</code> property (UID → name via <code>/etc/passwd</code>)</td></tr>
+<tr><td><code>setuid</code> / <code>setgid</code> / <code>capset</code></td><td>Drop or change privileges</td><td class="java">Not from Java; done by systemd/Docker before starting the JVM</td></tr>
+<tr><td><code>sysinfo</code></td><td>Total/free RAM, uptime, load</td><td class="java"><code>OperatingSystemMXBean</code> (also reads <code>/proc</code> and cgroup files)</td></tr>
+<tr><td><code>reboot</code></td><td>Reboot/power off the machine</td><td class="java">Never (root only)</td></tr>
+<tr><td><code>bpf</code></td><td>Load eBPF programs into the kernel (tracing, networking)</td><td class="java">Used by observability tools around your app, not by Java</td></tr>
+<tr><td><code>perf_event_open</code></td><td>Hardware performance counters</td><td class="java">async-profiler, <code>perf</code></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="sec" id="iso">
+<h2>Isolation: the syscalls containers are built from</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Syscall</th><th>What it does</th><th>Used by</th></tr></thead>
+<tbody>
+<tr><td><code>clone</code> <span class="tag">CLONE_NEW*</span></td><td>Start a process in new namespaces (PID, net, mount, UTS, IPC, user, cgroup)</td><td class="java">Docker/containerd/runc when starting a container</td></tr>
+<tr><td><code>unshare</code></td><td>Move the current process into new namespaces</td><td class="java"><code>unshare</code> command, container runtimes</td></tr>
+<tr><td><code>setns</code></td><td>Join an existing namespace</td><td class="java"><code>docker exec</code>, <code>kubectl exec</code></td></tr>
+<tr><td><code>pivot_root</code> / <code>chroot</code></td><td>Change what <code>/</code> means for the process</td><td class="java">Giving the container its own image filesystem</td></tr>
+<tr><td><code>mount</code></td><td>Overlay filesystem, bind mounts, volumes</td><td class="java"><code>-v</code> volumes, image layers (overlayfs)</td></tr>
+<tr><td><code>seccomp</code></td><td>Filter which syscalls a process may make</td><td class="java">Docker's default profile blocks ~40+ dangerous syscalls</td></tr>
+</tbody></table></div>
+<p>Limits (memory, CPU) are not syscalls: runtimes write to files under <code>/sys/fs/cgroup</code>. The JVM reads those files to size its heap (<code>-XX:MaxRAMPercentage</code>) and thread pools inside a container.</p>
+</section>
+
+<h2 id="observe">See it on your own machine</h2>
+<pre># Summary of every syscall a program makes
+strace -c ls
+strace -f -c java Sorter            # -f follows all JVM threads
+
+# Watch specific families live
+strace -f -e trace=openat,read,write java App
+strace -f -e trace=network java App   # socket, connect, bind, accept...
+strace -f -e trace=futex,clone java App
+
+# Attach to a running JVM
+strace -f -p &lt;pid&gt; -e trace=epoll_wait,read,write
+
+# Full list of syscalls with numbers on your machine
+ausyscall --dump          # from the auditd package
+man 2 syscalls            # manual section 2 = syscalls
+man 2 epoll_wait          # docs for one syscall</pre>
+<div class="note">Manual sections: <code>man 1</code> = commands, <code>man 2</code> = syscalls (kernel), <code>man 3</code> = C library functions (glibc). If <code>man 2 xyz</code> exists, <code>xyz</code> is a real syscall.</div>
+
+<footer>Linux for Developers · Section 1: System calls · Linux x86_64 / HotSpot JVM. Exact syscalls vary by kernel, glibc and JDK version; strace is the source of truth.</footer>
+</main>
+<script>
+(function(){
+  var q=document.getElementById('q');
+  q.addEventListener('input',function(){
+    var t=q.value.trim().toLowerCase();
+    document.querySelectorAll('section.sec').forEach(function(sec){
+      var any=false;
+      sec.querySelectorAll('tbody tr').forEach(function(tr){
+        var hit=!t||tr.textContent.toLowerCase().indexOf(t)>-1;
+        tr.classList.toggle('hidden',!hit); if(hit) any=true;
+      });
+      sec.classList.toggle('hidden',!any);
+    });
+  });
+})();
+</script>
+</body>
+</html>

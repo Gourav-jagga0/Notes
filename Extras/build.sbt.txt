@@ -1,0 +1,8 @@
+resolvers -> used to add links to download dependenciesin build.sbt eg
+			resolvers += "Shibboleth" at "https://build.shibboleth.net/nexus/content/repositories/releases/"
+							label			link
+val -> to define constants,lazy val-> to define constants that will execute only one when required
+scriptClasspath := Seq("*")->   to include src and libs in .class path files here seq(*) will include all the files and irectories in current path (in doubt)
+seq()-> is simply a linear sequence[Array] can use some methods like seq.range(1,10)  seq.fill(5)("hello")
+unmanagedBase := baseDirectory.value / "custom_lib" -> to store unmanaged jars by sbt   and add it to classs path
+val excludeJacksonCore = ExclusionRule(organization = "com.fasterxml.jackson.core")-> To exclude transitive dependencies from project in class path

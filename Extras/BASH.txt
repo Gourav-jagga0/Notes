@@ -1,0 +1,16 @@
+#!/bin/bash ->the system to use Bash for execution
+
+--file permissions
+chmod [options] [mode] [File_name] 
+
+options->-R=Apply the permission change recursively to all the files and directories within the specified directory.
+		-v=It will display a message for each file that is processed. while indicating the permission change that was made
+		-c=It works same as `-v` but in this case it only displays messages for files whose permission is changed.
+		-f=It helps in avoiding display of error messages
+		-h=Change the permissions of symbolic links instead of the files they point to
+	
+mode->Symbolic->operators->+=add,-=remove,==Set the permissions to the specified values
+				permissions-> r=read,w=write,x=execute
+				Reference->u=owner,g=group,o=other,a=all
+	->octal->4=read,2=write,1=execute
+				
